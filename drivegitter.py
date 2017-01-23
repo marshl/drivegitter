@@ -8,6 +8,7 @@ from pprint import pprint
 
 from pathlib import Path
 from queue import Queue
+from subprocess import call
 
 from apiclient import discovery
 from apiclient import errors
@@ -62,11 +63,6 @@ def get_credentials():
     return credentials
 
 def main():
-    """Shows basic usage of the Google Drive API.
-
-    Creates a Google Drive API service object and outputs the names and IDs
-    for up to 10 files.
-    """
     credentials = get_credentials()
     http = credentials.authorize(httplib2.Http())
     global drive_service
@@ -75,35 +71,38 @@ def main():
     output_dir = Path(flags.output_directory)
     output_dir.mkdir(exist_ok=True)
 
+    os.chdir(flags.output_directory)
     repo = git.Repo.init(flags.output_directory)
 
-    process_folder(flags.root_file_id, output_dir, repo)
+    process_folder(flags.root_file_id, output_dir)
 
-def process_folder(folder_id, folder_path, repo):
+def process_folder(folder_id, folder_path):
 
     root_file = drive_service.files().get(fileId = folder_id).execute()
     childpage = drive_service.children().list(folderId=folder_id).execute()
-    
+
     for child in childpage['items']:
         print("File {0}".format(child['id']))
 
-        process_file(child['id'], folder_path, repo)
+        process_file(child['id'], folder_path)
 
 
-def process_file(file_id, parent_path, repo):
+def process_file(file_id, parent_path):
 
     file = drive_service.files().get(fileId = file_id).execute()
-    
+
     #Google drive allows filenames that end with a space, which must be trimmed
     filename = file['title'].strip()
     file_path = Path(parent_path, filename)
     print(filename.encode('utf-8'))
-    
+
     if file['mimeType'] == 'application/vnd.google-apps.folder':
         file_path.mkdir(exist_ok = True)
-        process_folder(file_id, file_path, repo)
+        process_folder(file_id, file_path)
     elif not os.path.isfile(file_path.as_posix()):
-        
+
+        file_owner = file['owners'][0]
+
         if not 'downloadUrl' in file:
             output_mt = None
             if file['mimeType'] == 'application/vnd.google-apps.document':
@@ -113,36 +112,77 @@ def process_file(file_id, parent_path, repo):
             else:
                 print(file['exportLinks'])
                 sys.exit('Unknown mimeType ' + file['mimeType'])
-        
+
             f = open(file_path.as_posix(), 'wb')
             file_content = drive_service.files().export_media(fileId=file_id, mimeType=output_mt).execute()
             f.write(file_content)
             f.close()
-        else:
-            process_file_revisions(file, parent_path, repo)
 
-def process_file_revisions(drive_file, parent_path, repo):
-    
+            result = call(['git', 'add', '-f', file_path.as_posix()])
+            if result != 0:
+                sys.exit('An error occurred during the add')
+
+            user = file['lastModifyingUser']
+            message = 'Added {0}'.format(filename)
+            result = commit_file(file_path, message, file['modifiedDate'], user, file_owner)
+            if result != 0:
+                sys.exit('An error occurred during the commit')
+        else:
+            process_file_revisions(file, parent_path, file_owner)
+
+        if 'trashed' in file['labels'] and file['labels']['trashed'] == True:
+            result = call(['git', 'rm', file_path.as_posix()])
+            if result != 0:
+                sys.exit('An error occurred during the add')
+            user = file['lastModifyingUser']
+            message = 'Removed {0}'.format(filename)
+            result = commit_file(file_path, message, file['modifiedDate'], user, file_owner)
+            if result != 0:
+                sys.exit('An error occurred during the commit')
+
+def process_file_revisions(drive_file, parent_path, file_owner):
+
     filename = drive_file['title'].strip()
     file_path = Path(parent_path, filename)
-    
+
     revisions = drive_service.revisions().list(fileId=drive_file['id']).execute()
+
+    revision_number = 0
     for revision in revisions['items']:
+        revision_number += 1
         f = open(file_path.as_posix(), 'wb')
         downloadUri = None
         if 'downloadUrl' in revision:
             downloadUri = revision['downloadUrl']
         elif 'exportLinks' in revision:
-            print('File has no export link')
-            return
-            # if filename.endswith('.pdf'):
-                # downloadUri = revision['exportLinks']['application/pdf']
-                
+            sys.exit('File has no export link')
+
         response = drive_service._http.request(uri=downloadUri)
         file_content = response[1]
         f.write(file_content)
         f.close()
-        
+
+        result = call(['git', 'add', '-f', file_path.as_posix()])
+        if result != 0:
+            sys.exit('An error occurred during the add')
+
+        user = revision['lastModifyingUser']
+        message = 'Added file {0}'.format(filename) if revision_number == 1 else 'Modified {0} (revision {1}'.format(filename, revision_number)
+        result = commit_file(file_path, message, revision['modifiedDate'], user, file_owner)
+        if result != 0:
+            sys.exit('An error occurred during the commit')
+
+def commit_file(file_path, message, date, modified_by_user, file_owner):
+
+    email = modified_by_user['emailAddress'] if 'emailAddress' in modified_by_user else file_owner['emailAddress']
+    return call(['git', 'commit',
+          '--message', message,
+          '--author="{0}" <{1}>'.format(modified_by_user['displayName'], email),
+          '--date=' + date,
+          '--allow-empty',
+          file_path.as_posix()])
+
+
 def download_file(file_id, local_fd):
   """Download a Drive file's content to the local filesystem.
 
@@ -166,8 +206,6 @@ def download_file(file_id, local_fd):
     if done:
       print('Download Complete')
       return
-
-
 
 if __name__ == '__main__':
     main()
