@@ -236,14 +236,27 @@ def vc_commit_file(file_path, message, date, modified_by_user, file_owner):
     
     elif vc_mode == 'svn':
         
-        return call(['svn', 'commit',
+        username = modified_by_user['displayName']
+        print(username)
+        username = (username[0] + re.split('[. ]', username)[-1]).lower()
+        print(username)
+        result = call(['svn', 'commit',
                      '--message', message,
-                     '--username', modified_by_user['displayName']])
+                     '--username', username])
+                     
+        if result != 0:
+            return result
+            
+        revision = check_output(['svnversion']).decode('utf-8').rstrip().split(':')[-1]
+        result = call(['svn', 'propset', 'svn:date', '--revprop', '-r', revision, date])
+        return result
                      
 def vc_add_folder(file_path, message, date, modified_by_user, file_owner):
     if vc_mode == 'svn':
         vc_add_file(file_path)
         return vc_commit_file(file_path, message, date, modified_by_user, file_owner)
+    
+    # git doesn't need to add folders, so return a success code
     return 0
         
 
