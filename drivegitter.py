@@ -216,7 +216,7 @@ def vc_add_file(file_path):
         return result
 
     elif vc_mode == 'svn':
-        result = call(['svn', 'add', file_path.as_posix()])
+        result = call(['svn', 'add', '--force', file_path.as_posix()])
         return 0
 
 
