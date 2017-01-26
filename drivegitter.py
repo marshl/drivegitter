@@ -1,15 +1,16 @@
-import git
+#import git
 import httplib2
 import os
 import re
 import sys
+import stat
 import threading
 from inspect import getmembers
 from pprint import pprint
 
 from pathlib import Path
-from queue import Queue
 from subprocess import call, check_output
+from shutil import copyfile
 
 from apiclient import discovery
 from apiclient import errors
@@ -34,7 +35,7 @@ CLIENT_SECRET_FILE = 'client_secrets.json'
 APPLICATION_NAME = 'Drive API Python Quickstart'
 DRIVE_FOLDER_MIMETYPE = 'application/vnd.google-apps.folder'
 
-file_queue = Queue()
+#file_queue = Queue()
 drive_service = None
 vc_mode = 'svn'
 
@@ -97,8 +98,17 @@ def main():
               'file:///{0}'.format(repo_dir.as_posix()), checkout_dir.as_posix()])
         
         # Stub the revprop change hook so we  can change the date of commits
-        hook_filename = 'pre-revprop-change.bat' if os.name == 'nt' else 'pre-revprop-changes'
-        open(Path(repo_dir, 'hooks', hook_filename).as_posix(), 'a').close()
+        
+        #open(hook_filepath, 'a').close()
+        hookpath = Path(repo_dir, 'hooks')
+        hook_filepath = Path(hookpath, 'pre-revprop-change.bat' if os.name == 'nt' else 'pre-revprop-change')
+        #copyfile(Path(hookpath, 'pre-revprop-change.tmpl').as_posix(), hook_filepath.as_posix())
+        f = open(hook_filepath.as_posix(), 'w')
+        f.write('#!/bin/sh\n')
+        f.write('exit 0\n')
+        f.close()        
+        if os.name != 'nt':
+            call(['chmod', '0777', hook_filepath.as_posix()])
         
         output_dir = checkout_dir
         os.chdir(output_dir.as_posix())
