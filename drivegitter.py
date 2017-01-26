@@ -1,14 +1,15 @@
+import git
 import httplib2
 import os
+import re
 import sys
 import threading
-import git
 from inspect import getmembers
 from pprint import pprint
 
 from pathlib import Path
 from queue import Queue
-from subprocess import call
+from subprocess import call, check_output
 
 from apiclient import discovery
 from apiclient import errors
@@ -37,6 +38,12 @@ file_queue = Queue()
 drive_service = None
 vc_mode = 'svn'
 
+completed_paths_file = open('completed_files.txt', 'a')
+
+with open('completed_files.txt', 'r') as f:
+    completed_paths = f.readlines()
+
+completed_paths = [x.strip() for x in completed_paths] 
 
 def get_credentials():
     """Gets valid user credentials from storage.
@@ -89,21 +96,28 @@ def main():
         call(['svn', 'checkout',
               'file:///{0}'.format(repo_dir.as_posix()), checkout_dir.as_posix()])
         
+        # Stub the revprop change hook so we  can change the date of commits
+        hook_filename = 'pre-revprop-change.bat' if os.name == 'nt' else 'pre-revprop-changes'
+        open(Path(repo_dir, 'hooks', hook_filename).as_posix(), 'a').close()
+        
         output_dir = checkout_dir
         os.chdir(output_dir.as_posix())
 
     process_folder(flags.root_file_id, output_dir)
+    completed_paths_file.close()
 
 
 def process_folder(folder_id, folder_path):
 
     root_file = drive_service.files().get(fileId=folder_id).execute()
-    childpage = drive_service.children().list(folderId=folder_id).execute()
+    children = drive_service.children().list(folderId=folder_id).execute()
 
-    for child in childpage['items']:
+    for child in children['items']:
         print("File {0}".format(child['id']))
-
         process_file(child['id'], folder_path)
+        
+    completed_paths_file.write(folder_path.as_posix() + "\n")
+    completed_paths_file.flush()
 
 
 def process_file(file_id, parent_path):
@@ -117,9 +131,16 @@ def process_file(file_id, parent_path):
     file_owner = file['owners'][0]
 
     if file['mimeType'] == 'application/vnd.google-apps.folder':
-        file_path.mkdir(exist_ok=True)
-        
-        vc_add_folder(file_path, 'Added {0}'.format(filename), file['modifiedDate'], file['lastModifyingUser'], file_owner)
+    
+        if file_path.as_posix() in completed_paths:
+            print("Skipping directory: {0}".format(file_path.as_posix()))
+            return
+    
+        if not file_path.exists():
+            file_path.mkdir()
+            result = vc_add_folder(file_path, 'Added {0}'.format(filename), file['modifiedDate'], file['lastModifyingUser'], file_owner)
+            if result != 0:
+                sys.exit('An error occurred when adding the folder ' + file_path.as_posix())
         
         process_folder(file_id, file_path)
     elif not os.path.isfile(file_path.as_posix()):
@@ -193,7 +214,7 @@ def process_file_revisions(drive_file, parent_path, file_owner):
         if result != 0:
             sys.exit('An error occurred during the file add')
 
-        message = 'Added file {0}'.format(filename) if revision_number == 1 else 'Modified {0} (revision {1}'.format(filename, revision_number)
+        message = 'Added file {0}'.format(filename) if revision_number == 1 else 'Modified {0} (revision {1})'.format(filename, revision_number)
         result = vc_commit_file(file_path, message, revision['modifiedDate'], revision['lastModifyingUser'], file_owner)
 
         if result != 0:
