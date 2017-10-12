@@ -1,4 +1,4 @@
-#import git
+import git
 import httplib2
 import os
 import re
@@ -35,7 +35,6 @@ CLIENT_SECRET_FILE = 'client_secrets.json'
 APPLICATION_NAME = 'Drive API Python Quickstart'
 DRIVE_FOLDER_MIMETYPE = 'application/vnd.google-apps.folder'
 
-#file_queue = Queue()
 drive_service = None
 vc_mode = 'svn'
 
@@ -97,12 +96,9 @@ def main():
         call(['svn', 'checkout',
               'file:///{0}'.format(repo_dir.as_posix()), checkout_dir.as_posix()])
 
-        # Stub the revprop change hook so we  can change the date of commits
-
-        #open(hook_filepath, 'a').close()
+        # Stub the revprop change hook so we can change the date of commits
         hookpath = Path(repo_dir, 'hooks')
         hook_filepath = Path(hookpath, 'pre-revprop-change.bat' if os.name == 'nt' else 'pre-revprop-change')
-        #copyfile(Path(hookpath, 'pre-revprop-change.tmpl').as_posix(), hook_filepath.as_posix())
         f = open(hook_filepath.as_posix(), 'w')
         f.write('#!/bin/sh\n')
         f.write('exit 0\n')
