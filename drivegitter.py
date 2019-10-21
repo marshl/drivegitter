@@ -3,14 +3,9 @@ import httplib2
 import os
 import re
 import sys
-import stat
-import threading
-from inspect import getmembers
-from pprint import pprint
 
 from pathlib import Path
 from subprocess import call, check_output
-from shutil import copyfile
 
 from apiclient import discovery
 from apiclient import errors
@@ -21,29 +16,31 @@ from oauth2client.file import Storage
 
 try:
     import argparse
+
     parser = argparse.ArgumentParser(parents=[tools.argparser])
-    parser.add_argument('root_file_id')
-    parser.add_argument('output_directory')
+    parser.add_argument("root_file_id")
+    parser.add_argument("output_directory")
     flags = parser.parse_args()
 except ImportError:
     flags = None
 
 # If modifying these scopes, delete your previously saved credentials
 # at ~/.credentials/drive-python-quickstart.json
-SCOPES = 'https://www.googleapis.com/auth/drive'
-CLIENT_SECRET_FILE = 'client_secrets.json'
-APPLICATION_NAME = 'Drive API Python Quickstart'
-DRIVE_FOLDER_MIMETYPE = 'application/vnd.google-apps.folder'
+SCOPES = "https://www.googleapis.com/auth/drive"
+CLIENT_SECRET_FILE = "client_secrets.json"
+APPLICATION_NAME = "Drive API Python Quickstart"
+DRIVE_FOLDER_MIMETYPE = "application/vnd.google-apps.folder"
 
 drive_service = None
-vc_mode = 'svn'
+vc_mode = "svn"
 
-completed_paths_file = open('completed_files.txt', 'a')
+completed_paths_file = open("completed_files.txt", "a")
 
-with open('completed_files.txt', 'r') as f:
+with open("completed_files.txt", "r") as f:
     completed_paths = f.readlines()
 
 completed_paths = [x.strip() for x in completed_paths]
+
 
 def get_credentials():
     """Gets valid user credentials from storage.
@@ -54,11 +51,11 @@ def get_credentials():
     Returns:
         Credentials, the obtained credential.
     """
-    home_dir = os.path.expanduser('~')
-    credential_dir = os.path.join(home_dir, '.credentials')
+    home_dir = os.path.expanduser("~")
+    credential_dir = os.path.join(home_dir, ".credentials")
     if not os.path.exists(credential_dir):
         os.makedirs(credential_dir)
-    credential_path = os.path.join(credential_dir, 'drivegitter.json')
+    credential_path = os.path.join(credential_dir, "drivegitter.json")
     store = Storage(credential_path)
     credentials = store.get()
     if not credentials or credentials.invalid:
@@ -68,7 +65,7 @@ def get_credentials():
             credentials = tools.run_flow(flow, store, flags)
         else:  # Needed only for compatibility with Python 2.6
             credentials = tools.run(flow, store)
-        print('Storing credentials to ' + credential_path)
+        print("Storing credentials to " + credential_path)
     return credentials
 
 
@@ -76,35 +73,44 @@ def main():
     credentials = get_credentials()
     http = credentials.authorize(httplib2.Http())
     global drive_service
-    drive_service = discovery.build('drive', 'v2', http=http)
+    drive_service = discovery.build("drive", "v2", http=http)
 
     output_dir = Path(flags.output_directory)
     output_dir.mkdir(exist_ok=True)
     root_folder = drive_service.files().get(fileId=flags.root_file_id).execute()
 
-    foldername = root_folder['title'].strip()
+    foldername = root_folder["title"].strip()
 
-    if vc_mode == 'git':
+    if vc_mode == "git":
         output_dir = Path(output_dir, foldername)
         output_dir.mkdir(exist_ok=True)
         os.chdir(output_dir.as_posix())
         repo = git.Repo.init()
-    elif vc_mode == 'svn':
-        repo_dir = Path(output_dir, '{0}_repo'.format(foldername))
-        checkout_dir = Path(output_dir, '{0}_checkout'.format(foldername))
-        call(['svnadmin', 'create', repo_dir.as_posix()])
-        call(['svn', 'checkout',
-              'file:///{0}'.format(repo_dir.as_posix()), checkout_dir.as_posix()])
+    elif vc_mode == "svn":
+        repo_dir = Path(output_dir, "{0}_repo".format(foldername))
+        checkout_dir = Path(output_dir, "{0}_checkout".format(foldername))
+        call(["svnadmin", "create", repo_dir.as_posix()])
+        call(
+            [
+                "svn",
+                "checkout",
+                "file:///{0}".format(repo_dir.as_posix()),
+                checkout_dir.as_posix(),
+            ]
+        )
 
         # Stub the revprop change hook so we can change the date of commits
-        hookpath = Path(repo_dir, 'hooks')
-        hook_filepath = Path(hookpath, 'pre-revprop-change.bat' if os.name == 'nt' else 'pre-revprop-change')
-        f = open(hook_filepath.as_posix(), 'w')
-        f.write('#!/bin/sh\n')
-        f.write('exit 0\n')
+        hookpath = Path(repo_dir, "hooks")
+        hook_filepath = Path(
+            hookpath,
+            "pre-revprop-change.bat" if os.name == "nt" else "pre-revprop-change",
+        )
+        f = open(hook_filepath.as_posix(), "w")
+        f.write("#!/bin/sh\n")
+        f.write("exit 0\n")
         f.close()
-        if os.name != 'nt':
-            call(['chmod', '0777', hook_filepath.as_posix()])
+        if os.name != "nt":
+            call(["chmod", "0777", hook_filepath.as_posix()])
 
         output_dir = checkout_dir
         os.chdir(output_dir.as_posix())
@@ -114,29 +120,27 @@ def main():
 
 
 def process_folder(folder_id, folder_path):
-
     root_file = drive_service.files().get(fileId=folder_id).execute()
     children = drive_service.children().list(folderId=folder_id).execute()
 
-    for child in children['items']:
-        print("File {0}".format(child['id']))
-        process_file(child['id'], folder_path)
+    for child in children["items"]:
+        print("File {0}".format(child["id"]))
+        process_file(child["id"], folder_path)
 
     completed_paths_file.write(folder_path.as_posix() + "\n")
     completed_paths_file.flush()
 
 
 def process_file(file_id, parent_path):
-
     file = drive_service.files().get(fileId=file_id).execute()
 
     # Google drive allows filenames that end with a space, which must be trimmed
-    filename = file['title'].strip()
+    filename = file["title"].strip()
     file_path = Path(parent_path, filename)
-    print(filename.encode('utf-8'))
-    file_owner = file['owners'][0]
+    print(filename.encode("utf-8"))
+    file_owner = file["owners"][0]
 
-    if file['mimeType'] == 'application/vnd.google-apps.folder':
+    if file["mimeType"] == "application/vnd.google-apps.folder":
 
         if file_path.as_posix() in completed_paths:
             print("Skipping directory: {0}".format(file_path.as_posix()))
@@ -144,85 +148,103 @@ def process_file(file_id, parent_path):
 
         if not file_path.exists():
             file_path.mkdir()
-            result = vc_add_folder(file_path, 'Added {0}'.format(filename), file['modifiedDate'], file['lastModifyingUser'], file_owner)
+            result = vc_add_folder(
+                file_path,
+                "Added {0}".format(filename),
+                file["modifiedDate"],
+                file["lastModifyingUser"],
+                file_owner,
+            )
             if result != 0:
-                sys.exit('An error occurred when adding the folder ' + file_path.as_posix())
+                sys.exit(
+                    "An error occurred when adding the folder " + file_path.as_posix()
+                )
 
         process_folder(file_id, file_path)
         return
 
-    if not 'downloadUrl' in file:
+    if not "downloadUrl" in file:
         output_mt = None
-        if file['mimeType'] == 'application/vnd.google-apps.document':
-            output_mt = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-            file_path = Path(file_path.as_posix() + '.docx')
-        elif file['mimeType'] == 'application/vnd.google-apps.spreadsheet':
-            output_mt = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            file_path = Path(file_path.as_posix() + '.xlsx')
-        elif file['mimeType'] == 'application/vnd.google-apps.presentation':
-            output_mt = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-            file_path = Path(file_path.as_posix() + '.pptx')
+        if file["mimeType"] == "application/vnd.google-apps.document":
+            output_mt = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            file_path = Path(file_path.as_posix() + ".docx")
+        elif file["mimeType"] == "application/vnd.google-apps.spreadsheet":
+            output_mt = (
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+            file_path = Path(file_path.as_posix() + ".xlsx")
+        elif file["mimeType"] == "application/vnd.google-apps.presentation":
+            output_mt = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            file_path = Path(file_path.as_posix() + ".pptx")
         else:
-            print(file['exportLinks'])
-            sys.exit('Unknown mimeType ' + file['mimeType'])
+            print(file["exportLinks"])
+            sys.exit("Unknown mimeType " + file["mimeType"])
 
     if file_path.as_posix() in completed_paths:
         print("Skipping file: {0}".format(file_path.as_posix()))
         return
 
-    if 'downloadUrl' in file:
+    if "downloadUrl" in file:
         process_file_revisions(file, parent_path, file_owner)
 
     else:
-        f = open(file_path.as_posix(), 'wb')
-        file_content = drive_service.files().export_media(
-            fileId=file_id, mimeType=output_mt).execute()
+        f = open(file_path.as_posix(), "wb")
+        file_content = (
+            drive_service.files()
+            .export_media(fileId=file_id, mimeType=output_mt)
+            .execute()
+        )
         f.write(file_content)
         f.close()
 
         result = vc_add_file(file_path)
         if result != 0:
-            sys.exit('An error occurred during the add')
+            sys.exit("An error occurred during the add")
 
-        user = file['lastModifyingUser']
-        message = 'Added {0}'.format(filename)
-        result = vc_commit_file(file_path, message, file['modifiedDate'], user, file_owner)
+        user = file["lastModifyingUser"]
+        message = "Added {0}".format(filename)
+        result = vc_commit_file(
+            file_path, message, file["modifiedDate"], user, file_owner
+        )
         if result != 0:
-            sys.exit('An error occurred during the commit')
+            sys.exit("An error occurred during the commit")
 
-
-    if 'trashed' in file['labels'] and file['labels']['trashed'] == True:
+    if "trashed" in file["labels"] and file["labels"]["trashed"] == True:
         result = vc_remove_file(file_path, file, file_owner)
         if result != 0:
-            sys.exit('An error occurred when removing the file')
+            sys.exit("An error occurred when removing the file")
 
-        message = 'Removed {0}'.format(file_path.name)
+        message = "Removed {0}".format(file_path.name)
         result = vc_commit_file(
-            file_path, message, file['modifiedDate'], file['lastModifyingUser'], file_owner)
+            file_path,
+            message,
+            file["modifiedDate"],
+            file["lastModifyingUser"],
+            file_owner,
+        )
 
         if result != 0:
-            sys.exit('An error occurred then committing the changes')
+            sys.exit("An error occurred then committing the changes")
 
     completed_paths_file.write(file_path.as_posix() + "\n")
     completed_paths_file.flush()
 
-def process_file_revisions(drive_file, parent_path, file_owner):
 
-    filename = drive_file['title'].strip()
+def process_file_revisions(drive_file, parent_path, file_owner):
+    filename = drive_file["title"].strip()
     file_path = Path(parent_path, filename)
 
-    revisions = drive_service.revisions().list(
-        fileId=drive_file['id']).execute()
+    revisions = drive_service.revisions().list(fileId=drive_file["id"]).execute()
 
     revision_number = 0
-    for revision in revisions['items']:
+    for revision in revisions["items"]:
         revision_number += 1
-        f = open(file_path.as_posix(), 'wb')
+        f = open(file_path.as_posix(), "wb")
         downloadUri = None
-        if 'downloadUrl' in revision:
-            downloadUri = revision['downloadUrl']
-        elif 'exportLinks' in revision:
-            sys.exit('File has no export link')
+        if "downloadUrl" in revision:
+            downloadUri = revision["downloadUrl"]
+        elif "exportLinks" in revision:
+            sys.exit("File has no export link")
 
         response = drive_service._http.request(uri=downloadUri)
         file_content = response[1]
@@ -231,66 +253,82 @@ def process_file_revisions(drive_file, parent_path, file_owner):
 
         result = vc_add_file(file_path)
         if result != 0:
-            sys.exit('An error occurred during the file add')
+            sys.exit("An error occurred during the file add")
 
-        message = 'Added file {0}'.format(filename) if revision_number == 1 else 'Modified {0} (revision {1})'.format(filename, revision_number)
-        result = vc_commit_file(file_path, message, revision['modifiedDate'], revision['lastModifyingUser'], file_owner)
+        message = (
+            "Added file {0}".format(filename)
+            if revision_number == 1
+            else "Modified {0} (revision {1})".format(filename, revision_number)
+        )
+        result = vc_commit_file(
+            file_path,
+            message,
+            revision["modifiedDate"],
+            revision["lastModifyingUser"],
+            file_owner,
+        )
 
         if result != 0:
-            sys.exit('An error occurred during the commit')
+            sys.exit("An error occurred during the commit")
 
 
 def vc_remove_file(file_path, file, file_owner):
-
-    if vc_mode == 'git':
-        result = call(['git', 'rm', file_path.as_posix()])
+    if vc_mode == "git":
+        result = call(["git", "rm", file_path.as_posix()])
         return result
-    elif vc_mode == 'svn':
-        result = call(['svn', 'delete', file_path.as_posix()])
+    elif vc_mode == "svn":
+        result = call(["svn", "delete", file_path.as_posix()])
         return result
 
 
 def vc_add_file(file_path):
-    if vc_mode == 'git':
-        result = call(['git', 'add', '-f', file_path.as_posix()])
+    if vc_mode == "git":
+        result = call(["git", "add", "-f", file_path.as_posix()])
         return result
 
-    elif vc_mode == 'svn':
-        result = call(['svn', 'add', '--force', file_path.as_posix()])
+    elif vc_mode == "svn":
+        result = call(["svn", "add", "--force", file_path.as_posix()])
         return 0
 
 
 def vc_commit_file(file_path, message, date, modified_by_user, file_owner):
+    email = (
+        modified_by_user["emailAddress"]
+        if "emailAddress" in modified_by_user
+        else file_owner["emailAddress"]
+    )
 
-    email = modified_by_user['emailAddress'] if 'emailAddress' in modified_by_user else file_owner['emailAddress']
+    if vc_mode == "git":
 
-    if vc_mode == 'git':
+        return call(
+            [
+                "git",
+                "commit",
+                "--message",
+                message,
+                '--author="{0}" <{1}>'.format(modified_by_user["displayName"], email),
+                "--date=" + date,
+                "--allow-empty",
+                file_path.as_posix(),
+            ]
+        )
 
-        return call(['git', 'commit',
-                     '--message', message,
-                     '--author="{0}" <{1}>'.format(
-                         modified_by_user['displayName'], email),
-                     '--date=' + date,
-                     '--allow-empty',
-                    file_path.as_posix()])
+    elif vc_mode == "svn":
 
-    elif vc_mode == 'svn':
-
-        username = modified_by_user['displayName']
-        username = (username[0] + re.split('[. ]', username)[-1]).lower()
-        result = call(['svn', 'commit',
-                     '--message', message,
-                     '--username', username])
+        username = modified_by_user["displayName"]
+        username = (username[0] + re.split("[. ]", username)[-1]).lower()
+        result = call(["svn", "commit", "--message", message, "--username", username])
 
         if result != 0:
             return result
 
-        revision = check_output(['svnversion']).decode('utf-8').rstrip().split(':')[-1]
-        result = call(['svn', 'propset', 'svn:date', '--revprop', '-r', revision, date])
+        revision = check_output(["svnversion"]).decode("utf-8").rstrip().split(":")[-1]
+        result = call(["svn", "propset", "svn:date", "--revprop", "-r", revision, date])
         return result
 
+
 def vc_add_folder(file_path, message, date, modified_by_user, file_owner):
-    if vc_mode == 'svn':
+    if vc_mode == "svn":
         vc_add_file(file_path)
         return vc_commit_file(file_path, message, date, modified_by_user, file_owner)
 
@@ -314,13 +352,14 @@ def download_file(file_id, local_fd):
         try:
             (download_progress, done) = media_request.next_chunk()
         except errors.HttpError as error:
-            print('An error occurred: %s' % error)
+            print("An error occurred: %s" % error)
             return
         if download_progress:
-            print('Download Progress: %d%%' % int(download_progress.progress() * 100))
+            print("Download Progress: %d%%" % int(download_progress.progress() * 100))
         if done:
-            print('Download Complete')
+            print("Download Complete")
             return
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
