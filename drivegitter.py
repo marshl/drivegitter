@@ -1,11 +1,11 @@
-import git
-import httplib2
 import os
 import re
 import sys
-
 from pathlib import Path
 from subprocess import call, check_output
+
+import git
+import httplib2
 
 from apiclient import discovery
 from apiclient import errors
@@ -326,6 +326,8 @@ def vc_commit_file(file_path, message, date, modified_by_user, file_owner):
         result = call(["svn", "propset", "svn:date", "--revprop", "-r", revision, date])
         return result
 
+    return None
+
 
 def vc_add_folder(file_path, message, date, modified_by_user, file_owner):
     if vc_mode == "svn":
@@ -340,7 +342,6 @@ def download_file(file_id, local_fd):
     """Download a Drive file's content to the local filesystem.
 
     Args:
-      service: Drive API Service instance.
       file_id: ID of the Drive file that will downloaded.
       local_fd: io.Base or file object, the stream that the Drive file's
           contents will be written to.
